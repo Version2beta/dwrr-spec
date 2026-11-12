@@ -15,6 +15,7 @@ this as long as every result is identical. The corpus generator checks --fast
 against the step-by-step mode wherever both can run.
 """
 import json
+import re
 import sys
 
 MAX_COST = MAX_QUANTUM = 2**63 - 1
@@ -178,20 +179,72 @@ class Scheduler:
         assert not self.active or self.items[self.cursor], "active visit on an empty queue"
 
 
-def handle(scheduler, request, fast):
-    """Apply one PROTOCOL.md request. Returns (scheduler, response)."""
-    op = request["op"]
+CANONICAL_DECIMAL = re.compile(r"(0|[1-9][0-9]*)")
+U64_MAX = 2**64 - 1
+
+
+class ProtocolError(ValueError):
+    """A request PROTOCOL.md §3.1 doesn't allow. The driver exits with status 2."""
+
+
+def _integer(request, field):
+    value = request.get(field)
+    if type(value) is not int:   # rejects bool, float, str and missing
+        raise ProtocolError(f"{field} must be an integer")
+    return value
+
+
+def _decimal(value, field):
+    if type(value) is not str or not CANONICAL_DECIMAL.fullmatch(value) or int(value) > U64_MAX:
+        raise ProtocolError(f"{field} must be a canonical decimal string between 0 and 2^64-1")
+    return int(value)
+
+
+def parse(request):
+    """Check a whole request (PROTOCOL.md §3.1) and return (op, arguments)."""
+    if type(request) is not dict:
+        raise ProtocolError("request must be a JSON object")
+    op = request.get("op")
     if op == "new":
-        return Scheduler(request["count"], fast), {"ok": None}
+        count = _integer(request, "count")
+        if count < 0:
+            raise ProtocolError("count must be zero or more")
+        return op, (count,)
+    if op == "enqueue":
+        queue = _integer(request, "queue")
+        items = request.get("items")
+        if type(items) is not list or any(type(it) is not dict for it in items):
+            raise ProtocolError("items must be a list of objects")
+        return op, (queue, [(_integer(it, "value"), _decimal(it.get("cost"), "cost")) for it in items])
+    if op == "set_quantum":
+        return op, (_integer(request, "queue"), _decimal(request.get("quantum"), "quantum"))
+    if op in ("remove_head", "drain_queue"):
+        return op, (_integer(request, "queue"),)
+    if op == "take":
+        return op, (_integer(request, "n"),)
+    if op in ("add_queue", "remove_queue"):
+        return op, ()
+    raise ProtocolError(f"unknown op {op!r}")
+
+
+def handle(scheduler, request, fast):
+    """Apply one PROTOCOL.md request. Returns (scheduler, response).
+
+    Raises ProtocolError for anything PROTOCOL.md §3.1 doesn't allow; protocol
+    checks happen before any scheduler check.
+    """
+    op, args = parse(request)
+    if op == "new":
+        return Scheduler(args[0], fast), {"ok": None}
     if scheduler is None:
-        raise ValueError(f"{op!r} before the first new")
+        raise ProtocolError(f"{op!r} before the first new")
     s = scheduler
     try:
         if op == "enqueue":
-            s.enqueue(request["queue"], [(it["value"], int(it["cost"])) for it in request["items"]])
+            s.enqueue(*args)
             result = None
         elif op == "set_quantum":
-            s.set_quantum(request["queue"], int(request["quantum"]))
+            s.set_quantum(*args)
             result = None
         elif op == "add_queue":
             result = s.add_queue()
@@ -199,14 +252,12 @@ def handle(scheduler, request, fast):
             s.remove_queue()
             result = None
         elif op == "remove_head":
-            item = s.remove_head(request["queue"])
+            item = s.remove_head(*args)
             result = None if item is None else {"value": item[0], "cost": str(item[1])}
         elif op == "drain_queue":
-            result = [{"value": v, "cost": str(c)} for v, c in s.drain_queue(request["queue"])]
-        elif op == "take":
-            result = [{"queue": q, "value": v, "cost": str(c)} for q, v, c in s.take(request["n"])]
-        else:
-            raise ValueError(f"unknown op {op!r}")
+            result = [{"value": v, "cost": str(c)} for v, c in s.drain_queue(*args)]
+        else:  # take
+            result = [{"queue": q, "value": v, "cost": str(c)} for q, v, c in s.take(*args)]
         response = {"ok": result}
     except SchedulerError as e:
         response = {"error": str(e)}
@@ -217,11 +268,10 @@ def handle(scheduler, request, fast):
 def driver(fast):
     scheduler = None
     for line in sys.stdin:
-        if not line.strip():
-            continue
         try:
-            scheduler, response = handle(scheduler, json.loads(line), fast)
-        except (ValueError, KeyError, TypeError) as e:
+            request = json.loads(line)   # a blank line fails here, as PROTOCOL.md requires
+            scheduler, response = handle(scheduler, request, fast)
+        except (json.JSONDecodeError, ProtocolError) as e:
             print(f"spec_model: protocol error: {e}", file=sys.stderr)
             sys.exit(2)
         sys.stdout.write(json.dumps(response, separators=(",", ":")) + "\n")

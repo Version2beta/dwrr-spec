@@ -1,6 +1,6 @@
 # dwrr specification
 
-**Version:** 0.1.0 (draft)
+**Version:** 0.1.1 (draft). 0.1.1 tightens the conformance protocol; scheduler behavior is unchanged from 0.1.0.
 **Status:** Describes the behavior of `github.com/version2beta/dwrr` v0.10.x. Every implementation of dwrr conforms to this document.
 
 This specification defines a deficit weighted round robin (DWRR) scheduler over FIFO queues: its state, its operations, their results and errors, and the numeric limits every implementation shares. It's language-neutral. Each implementation chooses names and error mechanisms that are idiomatic in its language, and documents how they map to the names here.

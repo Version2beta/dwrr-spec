@@ -7,29 +7,31 @@ The specification, conformance protocol and conformance corpus for **dwrr**, a d
 - [`corpus/`](corpus/): recorded cases, each a sequence of operations with the exact expected responses.
 - [`tools/`](tools/):
   - `replay.py` replays the corpus against any driver;
+  - `check_driver.py` checks what replay can't: flushing, exit status, and every kind of protocol error;
   - `spec_model.py` is the specification as an executable model;
   - `gen_corpus.py` regenerates the corpus.
 - [`drivers/go/`](drivers/go/): the driver for the Go implementation, `github.com/version2beta/dwrr`.
 
 ## Checking an implementation
 
-Build the implementation's driver, then run:
+Build the implementation's driver, then run both checks:
 
 ```sh
 python3 tools/replay.py --driver "<command that starts the driver>"
+python3 tools/check_driver.py --driver "<command that starts the driver>"
 ```
 
-It prints `PASS` with the case count, or the first mismatch in each failing case: the request, the expected response, and what the driver returned. The tools need Python 3.9 or newer and nothing else.
+`replay.py` prints `PASS` with the case count, or the first mismatch in each failing case: the request, the expected response, and what the driver returned. `check_driver.py` lists each protocol check and whether it passed. The tools need Python 3.9 or newer and nothing else.
 
 ## Implementations
 
 | Language | Repository | Conforms to |
 |---|---|---|
-| Go | [version2beta/dwrr](https://github.com/version2beta/dwrr) | 0.1.0 |
+| Go | [version2beta/dwrr](https://github.com/version2beta/dwrr) | 0.1.1 |
 
 ## Status
 
-Version 0.1.0 is a draft. A live harness, which generates new sequences, fuzzes them and shrinks failures, is planned and will use the same protocol.
+Version 0.1.1 is a draft. See [`CHANGELOG.md`](CHANGELOG.md). A live harness, which generates new sequences, fuzzes them and shrinks failures, is planned and will use the same protocol.
 
 ## License
 
