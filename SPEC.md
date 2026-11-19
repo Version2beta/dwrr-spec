@@ -20,7 +20,7 @@ Conformance is checked by the shared harness against the shared reference and co
 | `MAX_COST` | 2⁶³ − 1 = 9,223,372,036,854,775,807 |
 | `MAX_QUANTUM` | 2⁶³ − 1 = 9,223,372,036,854,775,807 |
 
-Every implementation must accept every cost and quantum from 1 to these limits, and reject values outside that range with the errors in §6. The limits are the same in every language, even where the language's integers could hold more, so the conformance corpus means the same thing everywhere.
+Cost and quantum validation inputs in this shared contract are nonnegative integers. Every implementation must accept every cost and quantum from 1 to these limits, reject zero with its zero error, and reject larger nonnegative integers with its too-large error in §6. Negative costs/quanta and wrong types are outside this shared input domain; their handling is language-local and introduces no shared error code. The limits are the same in every language, even where the language's integers could hold more, so the conformance corpus means the same thing everywhere.
 
 Implementations must compute credit exactly. Credit never exceeds `MAX_COST − 1 + MAX_QUANTUM` = 2⁶⁴ − 3 (§8), so an implementation can use unsigned 64-bit integers, wider integers, or arbitrary-precision integers. It must not round, saturate or wrap. Where a language's native numbers are exact only to a smaller range, for example IEEE 754 doubles beyond 2⁵³, the implementation must use an exact representation.
 
@@ -211,16 +211,33 @@ Queue 0 receives 2 credit and serves `a`, which empties its credit. It can't aff
 
 ## 11. Mapping to implementations
 
-| Operation | Go (`github.com/version2beta/dwrr`) |
-|---|---|
-| `new(count)` | `NewDWRR[T](count)` |
-| `enqueue` | `Enqueue(queue, []Item[T])` returns `ErrZeroCost` or `ErrCostTooLarge` |
-| `set_quantum` | `SetQuantum(queue, quantum)` returns `ErrZeroQuantum` or `ErrQuantumTooLarge` |
-| `add_queue` | `AddQueue()` |
-| `remove_queue` | `RemoveQueue()` |
-| `remove_head` | `RemoveHead(queue)` returns `(Item[T], bool)` |
-| `drain_queue` | `DrainQueue(queue)` |
-| `take` | `Take(n)` |
-| `invalid_index`, `negative_take` | panic |
+| Operation | Go (`github.com/version2beta/dwrr`) | Elixir (`Dwrr`, `dwrr-elixir`) |
+|---|---|---|
+| `new(count)` | `NewDWRR[T](count)` | `new/1` → scheduler |
+| `enqueue` | `Enqueue(queue, []Item[T])` returns cost error | `enqueue/3` → `{:ok, scheduler}` or `{:error, code}` |
+| `set_quantum` | `SetQuantum(queue, quantum)` returns quantum error | `set_quantum/3` → `{:ok, scheduler}` or `{:error, code}` |
+| `add_queue` | `AddQueue()` | `add_queue/1` → `{index, scheduler}` |
+| `remove_queue` | `RemoveQueue()` | `remove_queue/1` → scheduler |
+| `remove_head` | `RemoveHead(queue)` returns `(Item[T], bool)` | `remove_head/2` → `{:ok, item_or_nil, scheduler}` or `{:error, :invalid_index}` |
+| `drain_queue` | `DrainQueue(queue)` | `drain_queue/2` → `{:ok, items, scheduler}` or `{:error, :invalid_index}` |
+| `take` | v0.10.1: `Take(n)` → slice; current unreleased: `(slice, error)` | `take/2` → `{:ok, scheduled_items, scheduler}` or `{:error, :negative_take}` |
+| `invalid_index`, `negative_take` | panic | tagged atom errors; retain input scheduler |
 
-Each new implementation adds a column here.
+Go cost errors are `ErrZeroCost` / `ErrCostTooLarge`; fixed-integer quantum errors
+are `ErrZeroQuantum` / `ErrQuantumTooLarge`. Elixir maps all six codes to atoms,
+retains the original immutable input on errors, and raises `ArgumentError` for
+outside-domain types/shapes. Ownership, concurrency and result APIs are local;
+this table does not require identical APIs or Go's unreleased callable extensions.
+
+**Current-Go qualification (informative):** its generation counter exhausts after
+2^64−1 state changes and a later mutation panics before changing state, even with
+only fixed quanta. This is a restriction relative to §1's all-sequences definition,
+not a shared lifetime limit to copy into other languages. The Go conformance
+adapter reports a valid count beyond native `int` as resource exhaustion, as
+permitted by PROTOCOL §1, not as a shared integer cap or scheduler error. Actual
+allocation/OOM recovery is not guaranteed. Its input-line restriction remains
+documented in `drivers/go/README.md`. Passing the finite corpus/checker does not erase these
+qualifications. Python remains an unapproved documentation-only target, not an
+implemented or verified mapping.
+
+Each new implementation documents its mapping here.

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"regexp"
 	"strconv"
@@ -17,29 +18,46 @@ import (
 )
 
 type item struct {
-	Value int64  `json:"value"`
-	Cost  string `json:"cost"`
-}
-
-// wireItem is an enqueued item as received, so missing fields can be detected.
-type wireItem struct {
-	Value *int64  `json:"value"`
-	Cost  *string `json:"cost"`
+	Value *big.Int `json:"value"`
+	Cost  string   `json:"cost"`
 }
 
 type scheduled struct {
-	Queue uint   `json:"queue"`
-	Value int64  `json:"value"`
-	Cost  string `json:"cost"`
+	Queue uint     `json:"queue"`
+	Value *big.Int `json:"value"`
+	Cost  string   `json:"cost"`
 }
 
-type request struct {
-	Op      string      `json:"op"`
-	Count   *int        `json:"count"`
-	Queue   *int64      `json:"queue"`
-	Quantum *string     `json:"quantum"`
-	Items   *[]wireItem `json:"items"`
-	N       *int        `json:"n"`
+// Decode only fields used by the selected operation. Unused fields, including
+// recognized fields of the wrong type, have no protocol meaning.
+type request map[string]json.RawMessage
+
+var jsonInteger = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
+
+func integer(r request, field string) *big.Int {
+	raw := bytes.TrimSpace(r[field])
+	if !jsonInteger.Match(raw) {
+		protocolError("%s must be a JSON integer", field)
+	}
+	n, _ := new(big.Int).SetString(string(raw), 10)
+	return n
+}
+
+// take supports both the published v0.10.1 API and the unreleased error-returning
+// API, without changing the module pin. Only fixed integer quanta enter here.
+func take(s any, n int) ([]dwrr.Scheduled[*big.Int], error) {
+	switch s := s.(type) {
+	case interface {
+		Take(int) ([]dwrr.Scheduled[*big.Int], error)
+	}:
+		return s.Take(n)
+	case interface {
+		Take(int) []dwrr.Scheduled[*big.Int]
+	}:
+		return s.Take(n), nil
+	default:
+		panic("unsupported dwrr Take signature")
+	}
 }
 
 var canonicalDecimal = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
@@ -59,22 +77,16 @@ func protocolError(format string, args ...any) {
 	os.Exit(2)
 }
 
-func number(s *string, field string) uint64 {
-	if s == nil {
-		protocolError("missing %s", field)
+func number(r request, field string) uint64 {
+	var text string
+	if err := json.Unmarshal(r[field], &text); err != nil || !canonicalDecimal.MatchString(text) {
+		protocolError("%s must be a canonical decimal string between 0 and 2^64-1", field)
 	}
-	v, err := strconv.ParseUint(*s, 10, 64)
-	if !canonicalDecimal.MatchString(*s) || err != nil {
+	v, err := strconv.ParseUint(text, 10, 64)
+	if err != nil {
 		protocolError("%s must be a canonical decimal string between 0 and 2^64-1", field)
 	}
 	return v
-}
-
-// need checks that a field the operation uses is present.
-func need(present bool, op, field string) {
-	if !present {
-		protocolError("%s needs %s", op, field)
-	}
 }
 
 func main() {
@@ -102,8 +114,9 @@ func main() {
 		protocolError("unexpected error: %v", err)
 	}
 
-	var s *dwrr.DWRR[int64]
-	queues := 0
+	var s *dwrr.DWRR[*big.Int]
+	var lengths []int
+	total := 0
 	for in.Scan() {
 		var r request
 		line := bytes.TrimSpace(in.Bytes())
@@ -113,51 +126,69 @@ func main() {
 		if err := json.Unmarshal(line, &r); err != nil {
 			protocolError("malformed request: %v", err)
 		}
-		switch r.Op {
+		var op string
+		if err := json.Unmarshal(r["op"], &op); err != nil {
+			protocolError("op must be a string")
+		}
+		switch op {
 		case "new", "enqueue", "set_quantum", "add_queue", "remove_queue", "remove_head", "drain_queue", "take":
 		default:
-			protocolError("unknown op %q", r.Op)
+			protocolError("unknown op %q", op)
 		}
-		if s == nil && r.Op != "new" {
-			protocolError("%q before the first new", r.Op)
+		if s == nil && op != "new" {
+			protocolError("%q before the first new", op)
 		}
 		// index checks the queue against the current scheduler. Every protocol
 		// check for the request must already have passed.
-		index := func() (uint, bool) {
-			if *r.Queue < 0 || *r.Queue >= int64(queues) {
+		index := func(q *big.Int) (uint, bool) {
+			if q.Sign() < 0 || q.Cmp(big.NewInt(int64(len(lengths)))) >= 0 {
 				fail("invalid_index")
 				return 0, false
 			}
-			return uint(*r.Queue), true
+			return uint(q.Uint64()), true
 		}
-		switch r.Op {
+		switch op {
 		case "new":
-			if r.Count == nil || *r.Count < 0 {
+			count := integer(r, "count")
+			if count.Sign() < 0 {
 				protocolError("new needs a non-negative count")
 			}
-			s, queues = dwrr.NewDWRR[int64](uint(*r.Count)), *r.Count
+			// Both the library storage and backlog bookkeeping require native int
+			// lengths. This is resource exhaustion, not a wire integer bound.
+			maxInt := new(big.Int).SetUint64(uint64(^uint(0) >> 1))
+			if count.Cmp(maxInt) > 0 {
+				fmt.Fprintln(os.Stderr, "dwrr-driver: resource exhaustion: count exceeds native int representation")
+				os.Exit(1)
+			}
+			n := int(count.Int64())
+			s = dwrr.NewDWRR[*big.Int](uint(n))
+			lengths, total = make([]int, n), 0
 			ok(nil)
 		case "enqueue":
-			need(r.Queue != nil, r.Op, "queue")
-			need(r.Items != nil, r.Op, "items")
-			items := make([]dwrr.Item[int64], 0, len(*r.Items))
-			for _, it := range *r.Items {
-				need(it.Value != nil, r.Op, "a value for every item")
-				items = append(items, dwrr.Item[int64]{Value: *it.Value, Cost: number(it.Cost, "cost")})
+			queue := integer(r, "queue")
+			var batch []request
+			if err := json.Unmarshal(r["items"], &batch); err != nil || batch == nil {
+				protocolError("enqueue needs an items list")
 			}
-			q, valid := index()
+			items := make([]dwrr.Item[*big.Int], 0, len(batch))
+			for _, it := range batch {
+				items = append(items, dwrr.Item[*big.Int]{Value: integer(it, "value"), Cost: number(it, "cost")})
+			}
+			q, valid := index(queue)
 			if !valid {
 				continue
 			}
 			if err := s.Enqueue(q, items); err != nil {
 				failErr(err)
 			} else {
+				lengths[q] += len(items)
+				total += len(items)
 				ok(nil)
 			}
 		case "set_quantum":
-			need(r.Queue != nil, r.Op, "queue")
-			quantum := number(r.Quantum, "quantum")
-			q, valid := index()
+			queue := integer(r, "queue")
+			quantum := number(r, "quantum")
+			q, valid := index(queue)
 			if !valid {
 				continue
 			}
@@ -168,45 +199,61 @@ func main() {
 			}
 		case "add_queue":
 			ok(s.AddQueue())
-			queues++
+			lengths = append(lengths, 0)
 		case "remove_queue":
 			s.RemoveQueue()
-			if queues > 0 {
-				queues--
+			if len(lengths) > 0 {
+				total -= lengths[len(lengths)-1]
+				lengths = lengths[:len(lengths)-1]
 			}
 			ok(nil)
 		case "remove_head":
-			need(r.Queue != nil, r.Op, "queue")
-			q, valid := index()
+			queue := integer(r, "queue")
+			q, valid := index(queue)
 			if !valid {
 				continue
 			}
 			if it, found := s.RemoveHead(q); found {
+				lengths[q]--
+				total--
 				ok(item{it.Value, strconv.FormatUint(it.Cost, 10)})
 			} else {
 				ok(nil)
 			}
 		case "drain_queue":
-			need(r.Queue != nil, r.Op, "queue")
-			q, valid := index()
+			queue := integer(r, "queue")
+			q, valid := index(queue)
 			if !valid {
 				continue
 			}
+			total -= lengths[q]
+			lengths[q] = 0
 			items := []item{}
 			for _, it := range s.DrainQueue(q) {
 				items = append(items, item{it.Value, strconv.FormatUint(it.Cost, 10)})
 			}
 			ok(items)
 		case "take":
-			if r.N == nil {
-				protocolError("take needs n")
+			limit := integer(r, "n")
+			if limit.Sign() < 0 {
+				fail("negative_take")
+				continue
 			}
-			if *r.N < 0 {
-				fail("negative_take") // The Go library panics here.
+			// More than the actual backlog is observationally the same as the backlog:
+			// take stops only at its limit or all-empty. Never narrow an unbounded n.
+			n := total
+			if limit.Cmp(big.NewInt(int64(total))) < 0 {
+				n = int(limit.Int64())
+			}
+			selected, err := take(s, n)
+			if err != nil {
+				failErr(err)
 				continue
 			}
 			results := []scheduled{}
-			for _, it := range s.Take(*r.N) {
+			for _, it := range selected {
+				lengths[it.Queue]--
+				total--
 				results = append(results, scheduled{it.Queue, it.Value, strconv.FormatUint(it.Cost, 10)})
 			}
 			ok(results)

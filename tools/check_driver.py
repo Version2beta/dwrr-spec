@@ -55,6 +55,37 @@ INTERACTIVE = [
     ('{"op":"take","n":1}', {"ok": []}),
 ]
 
+# Corrections beyond the recorded (signed-32-bit) corpus domain. Keep these in
+# the interactive history so continuations also exercise adapter bookkeeping.
+BIG = 2**80
+INTERACTIVE += [
+    ('{"op":"new","count":2,"n":"ignored","queue":{},"items":false,"quantum":[]}', OK_NULL),
+    ('{"op":"set_quantum","queue":0,"quantum":"2","count":false,"n":{}}', OK_NULL),
+    ('{"op":"enqueue","queue":0,"items":[{"value":%d,"cost":"1","n":false}]}' % BIG, OK_NULL),
+    ('{"op":"enqueue","queue":1,"items":[{"value":%d,"cost":"1"}]}' % -BIG, OK_NULL),
+    ('{"op":"remove_head","queue":%d}' % BIG, {"error": "invalid_index"}),
+    ('{"op":"drain_queue","queue":%d}' % -BIG, {"error": "invalid_index"}),
+    ('{"op":"enqueue","queue":%d,"items":[{"value":1,"cost":"0"}]}' % BIG,
+     {"error": "invalid_index"}),
+    ('{"op":"set_quantum","queue":%d,"quantum":"0"}' % BIG, {"error": "invalid_index"}),
+    ('{"op":"take","n":%d}' % -BIG, {"error": "negative_take"}),
+    ('{"op":"take","n":%d,"count":{},"items":"ignored"}' % BIG,
+     {"ok": [{"queue": 0, "value": BIG, "cost": "1"},
+             {"queue": 1, "value": -BIG, "cost": "1"}]}),
+    ('{"op":"take","n":%d}' % BIG, {"ok": []}),
+    ('{"op":"enqueue","queue":0,"items":[{"value":%d,"cost":"1"}]}' % BIG, OK_NULL),
+    ('{"op":"remove_head","queue":0,"n":false}', {"ok": {"value": BIG, "cost": "1"}}),
+    ('{"op":"enqueue","queue":1,"items":[{"value":%d,"cost":"1"}]}' % -BIG, OK_NULL),
+    ('{"op":"drain_queue","queue":1,"quantum":false}', {"ok": [{"value": -BIG, "cost": "1"}]}),
+    ('{"op":"enqueue","queue":1,"items":[{"value":1,"cost":"1"}]}', OK_NULL),
+    ('{"op":"remove_queue","queue":false,"count":[]}', OK_NULL),
+    ('{"op":"take","n":%d}' % BIG, {"ok": []}),
+    ('{"op":"add_queue","n":false,"items":{}}', {"ok": 1}),
+    ('{"op":"enqueue","queue":1,"items":[{"value":7,"cost":"1"}]}', OK_NULL),
+    ('{"op":"new","count":0,"quantum":{}}', OK_NULL),
+    ('{"op":"take","n":%d}' % BIG, {"ok": []}),
+]
+
 # Name, the bad line. Each is sent after NEW, followed by a valid request that
 # must never be answered.
 PROTOCOL_ERRORS = [
@@ -94,6 +125,17 @@ PROTOCOL_ERRORS = [
     ("remove_head without queue", '{"op":"remove_head"}'),
     ("drain_queue with null queue", '{"op":"drain_queue","queue":null}'),
 ]
+PROTOCOL_ERRORS += [
+    ("malformed later cost after scheduler-invalid first item",
+     '{"op":"enqueue","queue":0,"items":[{"value":1,"cost":"0"},{"value":2,"cost":"01"}]}'),
+    ("malformed cost with huge invalid queue",
+     '{"op":"enqueue","queue":%d,"items":[{"value":1,"cost":"01"}]}' % BIG),
+    ("malformed quantum with huge invalid queue",
+     '{"op":"set_quantum","queue":%d,"quantum":"01"}' % BIG),
+    ("exponent n", '{"op":"take","n":1e0}'),
+    ("boolean value", '{"op":"enqueue","queue":0,"items":[{"value":true,"cost":"1"}]}'),
+]
+
 AFTER = '{"op":"take","n":1}'
 
 

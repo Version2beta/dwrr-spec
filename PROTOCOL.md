@@ -9,11 +9,20 @@ How a dwrr implementation is driven by the conformance tools. Each implementatio
 A driver is a program that wraps one implementation.
 
 - It reads **requests** from standard input, one JSON object per line, UTF-8.
-- For each request, it writes exactly one **response** to standard output: one JSON object on one line, followed by a newline.
+- For each request, it writes exactly one **response** to standard output: one JSON object on one line, followed by a newline, except on a fatal protocol or resource failure below.
 - It flushes standard output after every response, because the tools may wait for each response before sending the next request.
 - It writes nothing else to standard output. Diagnostics go to standard error.
 - At end of input, it exits with status 0.
 - On a **protocol error** (§3.1), it writes a message to standard error and exits with status 2, without writing a response for that line. Responses already written for earlier lines stand.
+
+A valid nonnegative `new(count)` that exceeds the driver's native queue-count
+representation may terminate as **resource exhaustion**, not as malformed input
+or a shared scheduler error. On this detected representation failure, write a
+diagnostic to standard error and exit nonzero (distinct from protocol status 2),
+without a response for that line or processing later requests; prior responses
+stand. This permits an implementation resource failure, not a common integer cap:
+another driver may represent the same count. No controlled recovery from actual
+allocation limits or out-of-memory failure is guaranteed.
 
 A driver holds one scheduler at a time. A `new` request replaces it.
 
@@ -22,7 +31,7 @@ A scheduler error, for example a zero cost, doesn't end the stream. The driver r
 ## 2. Numbers and types
 
 - `cost` and `quantum` are sent and returned as **canonical decimal strings**: `0`, or a nonzero digit followed by digits, with no sign, leading zeros, spaces or decimal point, for example `"9223372036854775807"`. Many JSON parsers lose precision above 2⁵³, which is why these travel as strings. A cost or quantum string must not exceed 2⁶⁴ − 1.
-- Queue indexes, `count`, `n` and item values are JSON **integers**: numbers with no fraction or exponent. In the corpus they stay between −2³¹ and 2³¹ − 1. `count` must be zero or more.
+- Queue indexes, `count`, `n` and item values are JSON **integers**: numbers with no fraction or exponent. In the corpus they stay between −2³¹ and 2³¹ − 1; this is not a protocol magnitude limit. Drivers must preserve integer payloads exactly and classify arbitrarily large out-of-range indexes as `invalid_index`, not as parse overflows. `count` must be zero or more.
 - Costs and quanta in the corpus stay between 0 and 2⁶⁴ − 1, so a driver for a language with 64-bit unsigned integers can pass them straight through. Values above `MAX_COST` or `MAX_QUANTUM` must be rejected with the errors in `SPEC.md` §6.
 
 ## 3. Requests and responses
