@@ -1,0 +1,24 @@
+{
+  "source_revision": "243dd125470365df2c52a6ce72de3ee8ecfce3fe",
+  "sha256": {
+    "SPEC.md": "e4196d70ffa79e91cc4448d4fe91c5f2d661169cc7a781c3a972a863f0f3288d",
+    "PROTOCOL.md": "db7cdbe2a8c1b03be7a89ec566d2c1fd800bcfe4d002c9ad45df1021e740d9c7",
+    "corpus/README.md": "d1e67c1782fe6b4c579ecfc879c02b9f859348a2b27bc80ad77ef93f1aa5df48",
+    "corpus/boundaries.jsonl": "aa99606f7441eca2689f11d8d9d793e740ce12da797823403412e63f54980b71",
+    "corpus/edge-cases.jsonl": "6fc3028a57ecdae4c54386b6de78c6f46daa6a56d4e41699ab671dbae05364f7",
+    "corpus/errors.jsonl": "ca86bbe58446ad82f899ebe3ec002689a4b4a12cb10ba64748ce5ec00ebd29fb",
+    "corpus/examples.jsonl": "f481f277aed5cc78e06c4ba5de4717c2bb6311df60551c6320fdcc17e3be807a",
+    "corpus/random-large.jsonl": "4fba307282dadcb348f283d973679cda7630f42cba3c7bdf145c5bd9b0c332e5",
+    "corpus/random-skip.jsonl": "394f81d136a7a482efe2a8ab5d6946f703919123d99641e9e27f4f44f5a255d0",
+    "corpus/random-small.jsonl": "d53f9b7226a9ee7a8751c1b9131a5e8b8022b5e6a094a942e0cd84d7b57d17db",
+    "tools/check_driver.py": "ccbaa88298d9e3418b50433ae90d435876bc825af799bdc55f9888c92e9f7775",
+    "tools/gen_corpus.py": "594f237bcb765010377ccd45d179f1937053637e5ed85b8508c015569981db51",
+    "tools/replay.py": "35bf235c2095f37929cb337bd9d2c51318a3e5173a42a8d0937c5664b611f607",
+    "tools/spec_model.py": "737d6bd0d6f6d409799cd0fa52fccbceb0420c2f4e8c244c6c40499435ef556b",
+    "drivers/go/README.md": "14b134389a3769393841e8e19197e137aed2e017b08c177a9de6f941ffae25cf",
+    "drivers/go/go.mod": "c51879d41c1cea9a698d5ff69a5784e605dccbb01d239e030d0e123e41f0b5fb",
+    "drivers/go/go.sum": "8f85aaf1c31e930395a84813fcf2e52bb04112d162826143a6f3e14834a29793",
+    "drivers/go/main.go": "b277de83f2363c79efef88c9faa204ad38ebce862ae912acf90e6bf11689818a",
+    "drivers/go/main_test.go": "100941a55a21680eedf885b02a9ecf1783a9c5f2758e64d54d3536173f366c1a"
+  }
+}

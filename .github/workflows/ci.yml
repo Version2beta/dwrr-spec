@@ -1,0 +1,37 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.9', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.2'
+          cache: false
+      - run: python -B ci/check_identity.py
+      - name: Build and test published pinned implementation adapter
+        working-directory: drivers/go
+        env:
+          GOTOOLCHAIN: local
+          GOFLAGS: -mod=readonly
+        run: |
+          go mod download
+          go mod verify
+          go test -race ./...
+          go vet ./...
+          go build -o "$RUNNER_TEMP/dwrr-driver" .
+          go version -m "$RUNNER_TEMP/dwrr-driver"
+      - run: python -B tools/replay.py --driver "$RUNNER_TEMP/dwrr-driver"
+      - run: python -B tools/check_driver.py --driver "$RUNNER_TEMP/dwrr-driver"
+      - run: git diff --exit-code && git diff --check

@@ -237,7 +237,19 @@ adapter reports a valid count beyond native `int` as resource exhaustion, as
 permitted by PROTOCOL §1, not as a shared integer cap or scheduler error. Actual
 allocation/OOM recovery is not guaranteed. Its input-line restriction remains
 documented in `drivers/go/README.md`. Passing the finite corpus/checker does not erase these
-qualifications. Python remains an unapproved documentation-only target, not an
-implemented or verified mapping.
+qualifications.
+
+**Python mapping (informative):** `dwrr-python` now implements the fixed core as
+`Scheduler[T](count)`, with `Item[T]` input and `Scheduled[T]` output records.
+Its methods use the shared operation names; enqueue, set_quantum and remove_queue
+return `None`, add_queue returns an index, remove_head returns an Item or None,
+and drain_queue/take return lists. The six shared codes are exposed through
+`SchedulerError.code`. The facade is mutable and internally locks each complete
+operation; outside-domain inputs use Python-local TypeError/ValueError rules.
+See its [local contract](https://github.com/version2beta/dwrr-python/blob/main/SPEC.md)
+for exact validation and ownership rules. Local finite corpus/protocol checks
+are recorded, not an all-sequences proof or publication approval. Its vendored
+shared snapshot remains `243dd125470365df2c52a6ce72de3ee8ecfce3fe`; this status
+refresh does not alter that provenance or any scheduler rule.
 
 Each new implementation documents its mapping here.
