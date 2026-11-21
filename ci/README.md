@@ -1,7 +1,9 @@
 # CI scope and provenance
 
 Push/PR CI has read-only permissions, bounded 15-minute jobs and Python 3.9
-(the tools' advertised minimum) / 3.14. Python 3.9 is an EOL legacy
+(the tools' advertised minimum) / 3.14. The runner is pinned to Ubuntu 24.04:
+Ubuntu 26.04 (`ubuntu-latest` in the first hosted run) has no setup-python
+3.9 x64 build, so that run failed during provisioning, before conformance. Python 3.9 is an EOL legacy
 compatibility target, not a recommended production runtime or security-support
 claim. Go 1.22.2 similarly checks the adapter's declared compatibility floor,
 not current Go security support. `identity.json` records the pre-CI source revision
